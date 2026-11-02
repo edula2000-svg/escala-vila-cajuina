@@ -84,34 +84,48 @@ function build(){
    const restCount=Number(document.getElementById("restCount").value);
    const allWorkDay=Number(document.getElementById("allWorkDay").value);
    if(!Number.isFinite(y)||!Number.isFinite(m)||m<0||m>11||n<1) throw new Error("Confira o mês e o ano selecionados.");
+   if(min<2 || min>3) throw new Error("O mínimo de camareiras deve ser 2 ou 3.");
    plan=Array.from({length:n},()=>[true,true,true]);
 
-   // Sunday-to-Saturday weeks. Sunday off rotates between staff.
+   // Semanas de domingo a sábado. A folga de domingo gira entre as camareiras.
    const firstSunday=new Date(y,m,1);
    firstSunday.setDate(firstSunday.getDate()-firstSunday.getDay());
    let sundayRotation=0,weekNumber=0;
 
    for(let weekStart=new Date(firstSunday); weekStart<=new Date(y,m,n); weekStart.setDate(weekStart.getDate()+7),weekNumber++){
      const sunday=new Date(weekStart);
+     let sundayOffPerson=-1;
      if(sunday.getMonth()===m){
-       plan[sunday.getDate()-1][sundayRotation%3]=false;
+       sundayOffPerson=sundayRotation%3;
+       plan[sunday.getDate()-1][sundayOffPerson]=false;
        sundayRotation++;
      }
 
-     if(restCount===2){
-       // One weekday rest each, on distinct Mon-Sat days; selected shared-work day excluded.
-       const allowed=[1,2,3,4,5,6].filter(d=>d!==allWorkDay);
-       const rotation=pattern==="alternate" ? weekNumber%allowed.length : 0;
-       for(let person=0;person<3;person++){
-         const weekday=allowed[(person+rotation)%allowed.length];
-         const date=new Date(weekStart);
-         date.setDate(date.getDate()+weekday);
-         if(date.getMonth()===m) plan[date.getDate()-1][person]=false;
-       }
+     // Distribui as folgas de cada pessoa individualmente.
+     // O dia definido como "todas trabalham" não recebe folga.
+     const weekdays=[1,2,3,4,5,6].filter(d=>d!==allWorkDay);
+     const rotation=pattern==="alternate" ? weekNumber%weekdays.length : 0;
+     const weekdayOrder=weekdays.map((_,i)=>weekdays[(i+rotation)%weekdays.length]);
+     const assignments=[];
+
+     for(let person=0;person<3;person++){
+       const target=restCount;
+       const alreadyOff=(person===sundayOffPerson)?1:0;
+       const needed=Math.max(0,target-alreadyOff);
+       for(let k=0;k<needed;k++) assignments.push(person);
      }
+
+     // Ordens distintas para que nunca haja mais de uma folga no mesmo dia.
+     // Para 5x2, são cinco folgas de segunda a sábado (exceto o dia coletivo).
+     assignments.forEach((person,i)=>{
+       if(i>=weekdayOrder.length) return;
+       const date=new Date(weekStart);
+       date.setDate(date.getDate()+weekdayOrder[i]);
+       if(date.getMonth()===m) plan[date.getDate()-1][person]=false;
+     });
    }
 
-   // Repair only if a configured staffing minimum would be violated.
+   // Se o mínimo configurado impedir uma folga, preserva o mínimo de pessoas trabalhando.
    plan.forEach(day=>{
      while(day.filter(Boolean).length<min){
        const p=day.findIndex(v=>!v);
@@ -149,7 +163,7 @@ yearSelect.addEventListener("change",()=>{if(sel.value){const parts=sel.value.sp
 document.getElementById("generate").addEventListener("click", build);
 document.getElementById("save").addEventListener("click",()=>{
   try {
-    localStorage.setItem("vilaCajuinaScaleV2",JSON.stringify(savedData()));
+    localStorage.setItem("vilaCajuinaScaleV3",JSON.stringify(savedData()));
     alert("Escala salva neste navegador/aparelho.");
   } catch(e) {
     alert("O navegador não permitiu salvar. Use Compartilhar > Salvar em Arquivos para guardar o arquivo.");
@@ -163,5 +177,5 @@ function printSchedule(){
 document.getElementById("preview").addEventListener("click",printSchedule);
 document.getElementById("print").addEventListener("click",printSchedule);
 document.getElementById("csv").onclick=()=>{let y=+document.getElementById("year").value,m=selectedMonth();let rows=[["Camareira",...plan.map((_,i)=>`${i+1} ${dow[new Date(y,m,i+1).getDay()]}`)]];team.forEach((name,p)=>rows.push([name,...plan.map(day=>day[p]?"Trabalha":"Folga")]));let data=rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(";")).join("\r\n");let a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["\ufeff"+data],{type:"text/csv;charset=utf-8"}));a.download=`escala-${y}-${String(m+1).padStart(2,"0")}.csv`;a.click();URL.revokeObjectURL(a.href);};
-try{let s=JSON.parse(localStorage.getItem("vilaCajuinaScaleV2"));if(s){sel.value=`${s.year}-${String(s.month+1).padStart(2,"0")}`;document.getElementById("year").value=s.year;document.getElementById("pattern").value=s.pattern;document.getElementById("restCount").value=s.restCount||2;document.getElementById("minimum").value=s.minimum;plan=s.plan;render()}else build()}catch(e){build()}
+try{let s=JSON.parse(localStorage.getItem("vilaCajuinaScaleV3"));if(s){sel.value=`${s.year}-${String(s.month+1).padStart(2,"0")}`;document.getElementById("year").value=s.year;document.getElementById("pattern").value=s.pattern;document.getElementById("restCount").value=s.restCount||2;document.getElementById("minimum").value=s.minimum;plan=s.plan;render()}else build()}catch(e){build()}
 </script></body></html>
