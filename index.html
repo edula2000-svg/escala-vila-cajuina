@@ -74,59 +74,60 @@ const yearSelect=document.getElementById("year");
 function selectedMonth(){return sel.value?Number(sel.value.split("-")[1])-1:10}
 let plan=[], chosenSunday=0;
 function build(){
- const y=Number(document.getElementById("year").value);
- const m=selectedMonth();
- const n=new Date(y,m+1,0).getDate();
- const pattern=document.getElementById("pattern").value;
- const min=Number(document.getElementById("minimum").value);
- const restCount=Number(document.getElementById("restCount").value);
- const allWorkDay=Number(document.getElementById("allWorkDay").value); // JS weekdays: 1=Mon ... 6=Sat
- plan=Array.from({length:n},()=>[true,true,true]);
+ try {
+   const y=Number(document.getElementById("year").value);
+   const m=selectedMonth();
+   const n=new Date(y,m+1,0).getDate();
+   const pattern=document.getElementById("pattern").value;
+   const min=Number(document.getElementById("minimum").value);
+   const restCount=Number(document.getElementById("restCount").value);
+   const allWorkDay=Number(document.getElementById("allWorkDay").value);
+   if(!Number.isFinite(y)||!Number.isFinite(m)||m<0||m>11||n<1) throw new Error("Confira o mês e o ano selecionados.");
+   plan=Array.from({length:n},()=>[true,true,true]);
 
- // Week starts on Sunday. Rotate the Sunday day-off across the three employees.
- const firstSunday=new Date(y,m,1);
- firstSunday.setDate(firstSunday.getDate()-firstSunday.getDay());
- let sundayRotation=0;
- let weekNumber=0;
+   // Sunday-to-Saturday weeks. Sunday off rotates between staff.
+   const firstSunday=new Date(y,m,1);
+   firstSunday.setDate(firstSunday.getDate()-firstSunday.getDay());
+   let sundayRotation=0,weekNumber=0;
 
- for(let weekStart=new Date(firstSunday); weekStart<=new Date(y,m,n); weekStart.setDate(weekStart.getDate()+7),weekNumber++){
-   const sunday=new Date(weekStart);
-   if(sunday.getMonth()===m){
-     plan[sunday.getDate()-1][sundayRotation%team.length]=false;
-     sundayRotation++;
-   }
+   for(let weekStart=new Date(firstSunday); weekStart<=new Date(y,m,n); weekStart.setDate(weekStart.getDate()+7),weekNumber++){
+     const sunday=new Date(weekStart);
+     if(sunday.getMonth()===m){
+       plan[sunday.getDate()-1][sundayRotation%3]=false;
+       sundayRotation++;
+     }
 
-   if(restCount===2){
-     // Assign one additional day off per employee on Mon-Sat, excluding
-     // the user-selected day when everyone must work.
-     const allowedDays=[1,2,3,4,5,6].filter(day=>day!==allWorkDay);
-     // Keep the three assigned rest days distinct in each week.
-     // Fixed = same weekday mapping; alternate = rotate the mapping weekly.
-     const rotation=pattern==="alternate" ? weekNumber%allowedDays.length : 0;
-     for(let person=0;person<team.length;person++){
-       const weekday=allowedDays[(person+rotation)%allowedDays.length];
-       const date=new Date(weekStart);
-       date.setDate(date.getDate()+weekday);
-       if(date.getMonth()===m){
-         plan[date.getDate()-1][person]=false;
+     if(restCount===2){
+       // One weekday rest each, on distinct Mon-Sat days; selected shared-work day excluded.
+       const allowed=[1,2,3,4,5,6].filter(d=>d!==allWorkDay);
+       const rotation=pattern==="alternate" ? weekNumber%allowed.length : 0;
+       for(let person=0;person<3;person++){
+         const weekday=allowed[(person+rotation)%allowed.length];
+         const date=new Date(weekStart);
+         date.setDate(date.getDate()+weekday);
+         if(date.getMonth()===m) plan[date.getDate()-1][person]=false;
        }
      }
    }
- }
 
- // Validate the configured daily staffing minimum. Restore work status if a
- // day would otherwise have fewer than the required number of people working.
- for(const day of plan){
-   while(day.filter(Boolean).length<min){
-     const person=day.findIndex(value=>!value);
-     if(person===-1)break;
-     day[person]=true;
-   }
- }
- render();
- const outputPanel=document.getElementById("table").closest(".panel");
- if(outputPanel && window.matchMedia("(max-width: 700px)").matches){
-   outputPanel.scrollIntoView({behavior:"smooth",block:"start"});
+   // Repair only if a configured staffing minimum would be violated.
+   plan.forEach(day=>{
+     while(day.filter(Boolean).length<min){
+       const p=day.findIndex(v=>!v);
+       if(p<0) break;
+       day[p]=true;
+     }
+   });
+
+   render();
+   const panel=document.getElementById("table").closest(".panel");
+   if(panel && window.matchMedia("(max-width:700px)").matches)
+     panel.scrollIntoView({behavior:"smooth",block:"start"});
+ } catch(err) {
+   console.error(err);
+   const status=document.getElementById("status");
+   if(status) status.textContent="Não foi possível gerar a escala: "+err.message;
+   alert("Não foi possível gerar a escala. Confira mês/ano e tente novamente. Detalhe: "+err.message);
  }
 }
 function render(){
