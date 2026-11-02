@@ -40,16 +40,17 @@ tr.row-joana th.name{background:#e7f6e8;color:#317342}
 }
 </style></head>
 <body><main class="app">
-<header><h1>Gerador de Escala de Camareiras</h1><p>Vila Cajuína · Luís Correia · Modelo 5x2</p></header>
+<header><h1>Gerador de Escala de Camareiras</h1><p>Vila Cajuína · Luís Correia · Escala configurável</p></header>
 <section class="panel">
 <h2>Configurar escala</h2>
 <div class="grid controls">
 <div><label for="month">Mês</label><input id="month" type="month" value="2026-11"></div>
 <div><label for="year">Ano</label><input id="year" type="number" inputmode="numeric" min="2024" max="2100" value="2026"></div>
+<div><label for="restCount">Folgas por semana</label><select id="restCount"><option value="1">1 folga por semana</option><option value="2" selected>2 folgas por semana (5x2)</option></select></div>
 <div><label for="pattern">Folgas durante a semana</label><select id="pattern"><option value="fixed">Fixas — mesmos dias toda semana</option><option value="alternate">Alternadas — mudam semanalmente</option></select></div>
 <div><label for="minimum">Mínimo trabalhando por dia</label><select id="minimum"><option value="2" selected>2 camareiras</option><option value="3">3 camareiras</option></select></div>
 </div>
-<p class="note controls">Equipe: Socorro, Fátima e Joana. Cada camareira terá 2 folgas por semana: 1 domingo em rodízio + 1 folga de segunda a quarta. A opção define se a folga de semana é fixa ou alternada.</p>
+<p class="note controls">Equipe: Socorro, Fátima e Joana. Escolha 1 ou 2 folgas semanais. A folga de domingo continua em rodízio entre Socorro, Fátima e Joana. Quando selecionar 2 folgas, será acrescentada uma folga de segunda a quarta; você pode escolher dias fixos ou alternados.</p>
 <div class="actions controls">
 <button id="generate">Gerar escala</button><button class="secondary" id="save">Salvar escala neste aparelho</button><button class="secondary" id="preview">Visualizar impressão</button><button class="secondary" id="print">Imprimir / Salvar PDF</button><button class="secondary" id="csv">Exportar CSV</button>
 </div>
@@ -74,38 +75,32 @@ const yearSelect=document.getElementById("year");
 function selectedMonth(){return sel.value?Number(sel.value.split("-")[1])-1:10}
 let plan=[];
 function build(){
- const y=+document.getElementById("year").value,m=selectedMonth(),n=new Date(y,m+1,0).getDate(),type=document.getElementById("pattern").value,min=+document.getElementById("minimum").value;
+ const y=+document.getElementById("year").value,m=selectedMonth(),n=new Date(y,m+1,0).getDate(),type=document.getElementById("pattern").value,min=+document.getElementById("minimum").value,restCount=+document.getElementById("restCount").value;
  plan=Array.from({length:n},()=>[true,true,true]);
 
- // Organiza semanas completas de domingo a sábado. Cada camareira recebe
- // um domingo de folga em rodízio e uma folga adicional de segunda a sexta.
- // Os dias de folga de semana são distintos para manter pelo menos 2 trabalhando.
- const first=new Date(y,m,1);
- const last=new Date(y,m,n);
- const firstSunday=new Date(y,m,1-first.getDay());
- let sundayIndex=0, weekIndex=0;
- for(let weekStart=new Date(firstSunday); weekStart<=last; weekStart.setDate(weekStart.getDate()+7),weekIndex++){
+ // Descanso dominical em rodízio. Se a opção for 2 folgas semanais,
+ // acrescenta-se uma folga de segunda a quarta para cada colaboradora.
+ const firstSunday=new Date(y,m,1);
+ firstSunday.setDate(1-firstSunday.getDay());
+ let sundayIndex=0,weekIndex=0;
+ for(let weekStart=new Date(firstSunday);weekStart<=new Date(y,m,n);weekStart.setDate(weekStart.getDate()+7),weekIndex++){
    const sunday=new Date(weekStart);
-   const sundayInMonth=sunday.getMonth()===m;
-   const weekDays=[];
-   for(let k=0;k<7;k++){const dt=new Date(weekStart);dt.setDate(dt.getDate()+k);weekDays.push(dt);}
-   // A pessoa escalada para folga de domingo alterna entre a equipe por semana.
-   const sundayOff=sundayIndex%3;
-   if(sundayInMonth){
-     const dayNo=sunday.getDate();
-     plan[dayNo-1][sundayOff]=false;
+   if(sunday.getMonth()===m){
+     const sundayOff=sundayIndex%3;
+     plan[sunday.getDate()-1][sundayOff]=false;
      sundayIndex++;
    }
-   // Um segundo dia de folga, em dia útil (seg-sex), por pessoa.
-   // Dias fixos: seg/ter/qua para Socorro/Fátima/Joana.
-   // Alternados: desloca as atribuições a cada semana.
-   for(let p=0;p<3;p++){
-     const weekday=type==="fixed" ? (p+1) : ((p+weekIndex)%3+1); // Monday=1, Tuesday=2, Wednesday=3
-     const dt=weekDays.find(d=>d.getDay()===weekday);
-     if(dt && dt.getMonth()===m) plan[dt.getDate()-1][p]=false;
+   if(restCount===2){
+     // Monday/Tuesday/Wednesday are assigned distinctly.
+     // Fixed pattern: each person keeps her weekday. Alternating pattern rotates weekly.
+     for(let p=0;p<3;p++){
+       const weekday=type==="fixed" ? (p+1) : ((p+weekIndex)%3+1);
+       const date=new Date(weekStart);date.setDate(date.getDate()+weekday);
+       if(date.getMonth()===m) plan[date.getDate()-1][p]=false;
+     }
    }
  }
- // Validar e reparar se houver qualquer dia abaixo do mínimo.
+ // Maintain the configured minimum number working each calendar day.
  plan.forEach(day=>{while(day.filter(Boolean).length<min){const p=day.findIndex(v=>!v);if(p<0)break;day[p]=true;}});
  render();
  const outputPanel=document.getElementById("table").closest(".panel");
@@ -123,13 +118,13 @@ function render(){
  let issue=plan.map((day,i)=>day.filter(Boolean).length<+document.getElementById("minimum").value?i+1:null).filter(v=>v);
  document.getElementById("status").textContent=issue.length?`Atenção: abaixo do mínimo nos dias ${issue.join(", ")}.`:"✓ Todos os dias respeitam o mínimo configurado.";
 }
-function savedData(){return {month:selectedMonth(),year:+document.getElementById("year").value,pattern:document.getElementById("pattern").value,minimum:+document.getElementById("minimum").value,plan};}
+function savedData(){return {month:selectedMonth(),year:+document.getElementById("year").value,pattern:document.getElementById("pattern").value,restCount:+document.getElementById("restCount").value,minimum:+document.getElementById("minimum").value,plan};}
 sel.addEventListener("change",()=>{if(sel.value)yearSelect.value=sel.value.split("-")[0];});
 yearSelect.addEventListener("change",()=>{if(sel.value){const parts=sel.value.split("-");sel.value=`${yearSelect.value}-${parts[1]}`;}});
 document.getElementById("generate").addEventListener("click", build);
 document.getElementById("save").addEventListener("click",()=>{
   try {
-    localStorage.setItem("vilaCajuinaScaleV3",JSON.stringify(savedData()));
+    localStorage.setItem("vilaCajuinaScaleV4",JSON.stringify(savedData()));
     alert("Escala salva neste navegador/aparelho.");
   } catch(e) {
     alert("O navegador não permitiu salvar. Use Compartilhar > Salvar em Arquivos para guardar o arquivo.");
@@ -143,5 +138,5 @@ function printSchedule(){
 document.getElementById("preview").addEventListener("click",printSchedule);
 document.getElementById("print").addEventListener("click",printSchedule);
 document.getElementById("csv").onclick=()=>{let y=+document.getElementById("year").value,m=selectedMonth();let rows=[["Camareira",...plan.map((_,i)=>`${i+1} ${dow[new Date(y,m,i+1).getDay()]}`)]];team.forEach((name,p)=>rows.push([name,...plan.map(day=>day[p]?"Trabalha":"Folga")]));let data=rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(";")).join("\r\n");let a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["\ufeff"+data],{type:"text/csv;charset=utf-8"}));a.download=`escala-${y}-${String(m+1).padStart(2,"0")}.csv`;a.click();URL.revokeObjectURL(a.href);};
-try{let s=JSON.parse(localStorage.getItem("vilaCajuinaScaleV3"));if(s){sel.value=`${s.year}-${String(s.month+1).padStart(2,"0")}`;document.getElementById("year").value=s.year;document.getElementById("pattern").value=s.pattern;document.getElementById("minimum").value=s.minimum;plan=s.plan;render()}else build()}catch(e){build()}
+try{let s=JSON.parse(localStorage.getItem("vilaCajuinaScaleV4"));if(s){sel.value=`${s.year}-${String(s.month+1).padStart(2,"0")}`;document.getElementById("year").value=s.year;document.getElementById("pattern").value=s.pattern;document.getElementById("restCount").value=s.restCount||2;document.getElementById("minimum").value=s.minimum;plan=s.plan;render()}else build()}catch(e){build()}
 </script></body></html>
